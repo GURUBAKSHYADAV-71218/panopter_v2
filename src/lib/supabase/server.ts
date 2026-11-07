@@ -30,17 +30,23 @@ function createDemoStub() {
     from: (_table: string) => noopQuery,
   }
 }
-
 export function isDemoMode(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  return !url || url === 'your-project-url' || url.includes('placeholder')
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
+  return (
+    !url ||
+    !key ||
+    url === 'your-project-url' ||
+    url.includes('placeholder')
+  )
 }
 
 export async function createClient() {
   const cookieStore = await cookies()
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return createDemoStub() as unknown as ReturnType<typeof createServerClient>
