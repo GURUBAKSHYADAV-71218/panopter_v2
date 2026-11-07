@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Panopter Global Styles ─────────────────────────────────────────────── */
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #0f0d0e;
+  color: #f0eae8;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #141214;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a3337;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4348;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid #c0334d;
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(192, 51, 77, 0.3);
+  color: #f0eae8;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Typography ─────────────────────────────────────────────────────────── */
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  color: #f0eae8;
+}
+
+/* ── Utility Classes ────────────────────────────────────────────────────── */
+
+.panopter-card {
+  @apply bg-p-surface border border-p-border rounded-p-lg p-4;
+}
+
+.panopter-input {
+  @apply w-full bg-p-bg-mid border border-p-border rounded-p px-3 py-2 text-p-text
+         placeholder:text-p-text-3 focus:outline-none focus:border-p-crimson
+         transition-colors duration-150;
+}
+
+.panopter-btn-primary {
+  @apply bg-p-crimson hover:bg-p-crimson-2 text-white font-medium px-4 py-2 rounded-p
+         transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.panopter-btn-secondary {
+  @apply bg-p-surface-2 hover:bg-p-border-2 text-p-text font-medium px-4 py-2 rounded-p
+         border border-p-border transition-colors duration-150;
+}
+
+.panopter-btn-ghost {
+  @apply text-p-text-2 hover:text-p-text hover:bg-p-surface-2 px-3 py-2 rounded-p
+         transition-colors duration-150;
+}
+
+.panopter-label {
+  @apply text-sm font-medium text-p-text-2 mb-1 block;
+}
+
+.panopter-badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+}
