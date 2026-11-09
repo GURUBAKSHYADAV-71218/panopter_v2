@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { validateFile, formatFileSize } from '@/lib/validation/fileValidation'
 import { computeFileHash, detectDuplicates } from '@/lib/hashing'
 import { useToast } from '@/hooks/useToast'
@@ -10,7 +9,7 @@ import { Upload, X, AlertCircle, CheckCircle, FileText, Image as ImageIcon, Load
 import type { UploadedFile } from '@/types'
 import { MAX_FILES_PER_INVESTIGATION } from '@/constants'
 import { storePendingFile } from '@/features/documents/pendingFilesStore'
-import { isDemoMode } from '@/lib/demo/demoData'
+import { investigationsStore, documentsStore } from '@/lib/store'
 
 type Step = 1 | 2 | 3
 
@@ -92,50 +91,23 @@ export default function NewInvestigationPage() {
   const canProceedStep2 = validFiles.length >= 1
 
   async function createInvestigation() {
-    if (isDemoMode()) {
-      addToast({
-        type: 'warning',
-        title: 'Demo mode — write disabled',
-        message: 'Creating investigations requires Supabase credentials. Configure .env.local to enable this feature.',
-      })
-      return
-    }
-
     setCreating(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
+      const inv = investigationsStore.create({ name: name.trim(), description: description.trim() || undefined })
 
-      const { data: inv, error: invErr } = await supabase.from('investigations').insert({
-        user_id: user.id, name: name.trim(), description: description.trim() || null, status: 'draft'
-      }).select().single()
-      if (invErr || !inv) throw new Error(invErr?.message ?? 'Failed to create investigation')
+      const docs = validFiles.map(f =>
+        documentsStore.create({
+          investigationId: inv.id,
+          fileName: f.name,
+          fileType: f.type,
+          fileSize: f.size,
+          fileHash: f.hash,
+        })
+      )
 
-      const docInserts = validFiles.map(f => ({
-        investigation_id: inv.id,
-        user_id: user.id,
-        file_name: f.name,
-        file_type: f.type,
-        file_size: f.size,
-        file_hash: f.hash,
-        processing_status: 'pending',
-        document_type: 'unknown',
-      }))
-      const { data: docs, error: docErr } = await supabase.from('documents').insert(docInserts).select()
-      if (docErr) throw new Error(docErr.message)
-
-      // Store pending files in memory store for processing page
-      docs?.forEach((doc, i) => {
+      docs.forEach((doc, i) => {
         const uploadedFile = validFiles[i]
         if (uploadedFile) storePendingFile(doc.id, uploadedFile.file)
-      })
-
-      await supabase.from('activity_logs').insert({
-        user_id: user.id,
-        investigation_id: inv.id,
-        activity_type: 'investigation_created',
-        description: `Investigation "${name.trim()}" created with ${validFiles.length} document${validFiles.length !== 1 ? 's' : ''}`,
       })
 
       addToast({ type: 'success', title: 'Investigation created', message: 'Ready to process documents.' })

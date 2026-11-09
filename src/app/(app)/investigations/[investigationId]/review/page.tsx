@@ -1,19 +1,17 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/hooks/useToast'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { ArrowLeft, PenLine, Trash2, Save, MessageSquare, AlertCircle } from 'lucide-react'
+import { ArrowLeft, PenLine, Trash2, Save, MessageSquare } from 'lucide-react'
 import type { InvestigationNote } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION_ID, DEMO_INVESTIGATION } from '@/lib/demo/demoData'
+import { investigationsStore, investigationNotesStore } from '@/lib/store'
 
 export default function ReviewPage() {
   const params = useParams()
-  const router = useRouter()
   const { addToast } = useToast()
   const investigationId = params.investigationId as string
 
@@ -25,82 +23,38 @@ export default function ReviewPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
 
-  const isDemo = isDemoMode() && investigationId === DEMO_INVESTIGATION_ID
-
-  const load = useCallback(async () => {
-    if (isDemo) {
-      setInvName(DEMO_INVESTIGATION.name)
-      setNotes([])
-      setLoading(false)
-      return
-    }
-
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-
-    const [{ data: inv }, { data: n }] = await Promise.all([
-      supabase.from('investigations').select('name').eq('id', investigationId).single(),
-      supabase.from('investigation_notes').select('*').eq('investigation_id', investigationId).order('created_at', { ascending: false }),
-    ])
-    setInvName(inv?.name ?? '')
-    setNotes((n ?? []) as InvestigationNote[])
+  const load = useCallback(() => {
+    setInvName(investigationsStore.get(investigationId)?.name ?? '')
+    setNotes(investigationNotesStore.list(investigationId))
     setLoading(false)
-  }, [investigationId, router, isDemo])
+  }, [investigationId])
 
   useEffect(() => { load() }, [load])
 
-  async function addNote() {
+  function addNote() {
     const content = noteContent.trim()
     if (!content) return
     setSavingNote(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-
-    const { data, error } = await supabase.from('investigation_notes').insert({
-      investigation_id: investigationId,
-      user_id: user.id,
-      content,
-    }).select().single()
-
+    const note = investigationNotesStore.create({ investigationId, content })
+    setNoteContent('')
+    setNotes(prev => [note, ...prev])
+    addToast({ type: 'success', title: 'Note added' })
     setSavingNote(false)
-    if (error) {
-      addToast({ type: 'error', title: 'Failed to save note', message: error.message })
-    } else {
-      setNoteContent('')
-      setNotes(prev => [data as InvestigationNote, ...prev])
-      addToast({ type: 'success', title: 'Note added' })
-    }
   }
 
-  async function saveEdit(noteId: string) {
+  function saveEdit(noteId: string) {
     const content = editContent.trim()
     if (!content) return
-    const supabase = createClient()
-    const { error } = await supabase.from('investigation_notes').update({
-      content,
-      updated_at: new Date().toISOString(),
-    }).eq('id', noteId)
-
-    if (error) {
-      addToast({ type: 'error', title: 'Failed to update note' })
-    } else {
-      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, content } : n))
-      setEditingId(null)
-      addToast({ type: 'success', title: 'Note updated' })
-    }
+    investigationNotesStore.update(noteId, content)
+    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, content } : n))
+    setEditingId(null)
+    addToast({ type: 'success', title: 'Note updated' })
   }
 
-  async function deleteNote(noteId: string) {
-    const supabase = createClient()
-    const { error } = await supabase.from('investigation_notes').delete().eq('id', noteId)
-    if (error) {
-      addToast({ type: 'error', title: 'Failed to delete note' })
-    } else {
-      setNotes(prev => prev.filter(n => n.id !== noteId))
-      addToast({ type: 'info', title: 'Note deleted' })
-    }
+  function deleteNote(noteId: string) {
+    investigationNotesStore.delete(noteId)
+    setNotes(prev => prev.filter(n => n.id !== noteId))
+    addToast({ type: 'info', title: 'Note deleted' })
   }
 
   if (loading) return <PageLoader />
@@ -117,35 +71,25 @@ export default function ReviewPage() {
         </div>
       </div>
 
-      {isDemo && (
-        <div className="flex items-start gap-2.5 bg-amber-900/20 border border-amber-700/40 text-amber-300 text-sm rounded-p px-4 py-3">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          <p>Notes require Supabase credentials to persist. In demo mode, notes are not saved.</p>
-        </div>
-      )}
-
-      {/* Add note */}
+      {/* New note input */}
       <div className="bg-p-surface border border-p-border rounded-xl p-5 space-y-3">
-        <h2 className="text-p-text font-semibold flex items-center gap-2">
-          <PenLine className="w-4 h-4 text-p-crimson" />
-          Add Note
+        <h2 className="text-p-text font-semibold text-sm flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-p-crimson" /> Add a Note
         </h2>
         <textarea
           value={noteContent}
           onChange={e => setNoteContent(e.target.value)}
-          placeholder={isDemo ? 'Notes are read-only in demo mode…' : 'Record observations, questions, or instructions for review…'}
+          placeholder="Write an investigation note, observation, or decision…"
           rows={4}
-          disabled={isDemo}
-          className="w-full bg-p-bg border border-p-border rounded-lg px-4 py-3 text-p-text text-sm placeholder:text-p-text-3 focus:outline-none focus:border-p-crimson resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-p-bg-mid border border-p-border rounded-p px-3 py-2.5 text-sm text-p-text placeholder:text-p-text-3 focus:outline-none focus:border-p-crimson resize-none"
         />
         <div className="flex justify-end">
           <button
             onClick={addNote}
-            disabled={savingNote || !noteContent.trim() || isDemo}
-            className="flex items-center gap-2 px-4 py-2 bg-p-crimson hover:bg-p-crimson-2 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            disabled={!noteContent.trim() || savingNote}
+            className="flex items-center gap-2 bg-p-crimson hover:bg-p-crimson-2 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-p transition-colors"
           >
-            <Save className="w-4 h-4" />
-            {savingNote ? 'Saving…' : 'Save Note'}
+            <Save className="w-4 h-4" /> Save Note
           </button>
         </div>
       </div>
@@ -155,54 +99,39 @@ export default function ReviewPage() {
         <EmptyState
           icon={<MessageSquare className="w-12 h-12" />}
           title="No notes yet"
-          description="Add notes to record your investigation observations and review progress."
+          description="Add notes, observations or decisions about this investigation."
         />
       ) : (
         <div className="space-y-3">
           {notes.map(note => (
-            <div key={note.id} className="bg-p-surface border border-p-border rounded-xl p-4 space-y-3">
+            <div key={note.id} className="bg-p-surface border border-p-border rounded-xl p-4 space-y-2">
               {editingId === note.id ? (
                 <>
                   <textarea
                     value={editContent}
                     onChange={e => setEditContent(e.target.value)}
-                    rows={4}
-                    className="w-full bg-p-bg border border-p-border rounded-lg px-4 py-3 text-p-text text-sm focus:outline-none focus:border-p-crimson resize-none"
+                    rows={3}
+                    className="w-full bg-p-bg-mid border border-p-border rounded-p px-3 py-2 text-sm text-p-text focus:outline-none focus:border-p-crimson resize-none"
                   />
                   <div className="flex gap-2 justify-end">
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="px-3 py-1.5 text-sm text-p-text-2 hover:text-p-text"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => saveEdit(note.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-p-crimson hover:bg-p-crimson-2 text-white rounded-lg text-sm transition-colors"
-                    >
-                      <Save className="w-3.5 h-3.5" /> Save
+                    <button onClick={() => setEditingId(null)} className="text-xs text-p-text-3 hover:text-p-text px-3 py-1.5 rounded-p hover:bg-p-surface-2 transition-colors">Cancel</button>
+                    <button onClick={() => saveEdit(note.id)} className="text-xs bg-p-crimson hover:bg-p-crimson-2 text-white px-3 py-1.5 rounded-p transition-colors flex items-center gap-1.5">
+                      <Save className="w-3 h-3" /> Save
                     </button>
                   </div>
                 </>
               ) : (
                 <>
-                  <p className="text-p-text text-sm leading-relaxed whitespace-pre-wrap">{note.content}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-p-text-3 text-xs">
-                      {new Date(note.created_at).toLocaleString('en-IN')}
-                      {note.updated_at !== note.created_at && ' (edited)'}
-                    </span>
+                  <p className="text-p-text-2 text-sm whitespace-pre-wrap">{note.content}</p>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-p-text-3">{new Date(note.created_at).toLocaleString('en-IN')}</span>
                     <div className="flex gap-1">
-                      <button
-                        onClick={() => { setEditingId(note.id); setEditContent(note.content) }}
-                        className="p-1.5 text-p-text-3 hover:text-p-text hover:bg-p-surface-2 rounded-lg transition-colors"
-                      >
+                      <button onClick={() => { setEditingId(note.id); setEditContent(note.content) }}
+                        className="p-1.5 rounded-p text-p-text-3 hover:text-p-info-2 hover:bg-p-info/10 transition-colors" title="Edit">
                         <PenLine className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => deleteNote(note.id)}
-                        className="p-1.5 text-p-text-3 hover:text-p-error-2 hover:bg-p-error/10 rounded-lg transition-colors"
-                      >
+                      <button onClick={() => deleteNote(note.id)}
+                        className="p-1.5 rounded-p text-p-text-3 hover:text-p-error-2 hover:bg-p-error/10 transition-colors" title="Delete">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>

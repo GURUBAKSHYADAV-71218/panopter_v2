@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   Search,
@@ -14,9 +14,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  LogOut,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -118,14 +116,6 @@ function NavLink({
 
 export function Sidebar({ collapsed, onToggle, user }: SidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
-
-  async function handleLogout() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
 
   const initials = getInitials(user.email, user.full_name)
   const displayName = user.full_name ?? user.email
@@ -209,28 +199,6 @@ export function Sidebar({ collapsed, onToggle, user }: SidebarProps) {
             </span>
           </div>
         </div>
-
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          title={collapsed ? 'Sign out' : undefined}
-          className={[
-            'flex items-center gap-3 w-full px-3 py-2 rounded-p',
-            'text-p-text-2 hover:bg-p-surface-2 hover:text-p-error-2',
-            'transition-colors duration-150 text-sm',
-            collapsed ? 'justify-center' : '',
-          ].join(' ')}
-        >
-          <LogOut className="w-4 h-4 shrink-0" />
-          <span
-            className={[
-              'whitespace-nowrap overflow-hidden transition-all duration-300',
-              collapsed ? 'w-0 opacity-0' : 'w-full opacity-100',
-            ].join(' ')}
-          >
-            Sign out
-          </span>
-        </button>
 
         {/* Collapse toggle */}
         <button

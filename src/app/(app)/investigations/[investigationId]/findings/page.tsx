@@ -3,13 +3,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Search, ArrowLeft, AlertCircle, ChevronRight } from 'lucide-react'
 import type { Finding, PriorityLevel, ReviewStatus } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION_ID, DEMO_INVESTIGATION, DEMO_FINDINGS } from '@/lib/demo/demoData'
+import { investigationsStore, findingsStore } from '@/lib/store'
 
 const FINDING_TYPE_LABELS: Record<string, string> = {
   amount_mismatch: 'Amount Mismatch',
@@ -34,21 +33,9 @@ export default function FindingsPage() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | 'all'>('all')
 
-  const load = useCallback(async () => {
-    if (isDemoMode() && investigationId === DEMO_INVESTIGATION_ID) {
-      setInvName(DEMO_INVESTIGATION.name)
-      setFindings(DEMO_FINDINGS)
-      setLoading(false)
-      return
-    }
-
-    const supabase = createClient()
-    const [{ data: inv }, { data: f }] = await Promise.all([
-      supabase.from('investigations').select('name').eq('id', investigationId).single(),
-      supabase.from('findings').select('*').eq('investigation_id', investigationId).order('priority_score', { ascending: false }),
-    ])
-    setInvName(inv?.name ?? 'Investigation')
-    setFindings((f ?? []) as Finding[])
+  const load = useCallback(() => {
+    setInvName(investigationsStore.get(investigationId)?.name ?? 'Investigation')
+    setFindings(findingsStore.list(investigationId))
     setLoading(false)
   }, [investigationId])
 

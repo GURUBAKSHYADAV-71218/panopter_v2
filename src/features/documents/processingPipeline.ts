@@ -1,5 +1,6 @@
 // Document processing pipeline — orchestrates validation, extraction, OCR, classification, field extraction
-import { createClient } from '@/lib/supabase/client'
+// Uses local store (localStorage) — no Supabase required.
+import { documentsStore, extractedFieldsStore } from '@/lib/store'
 import { validateFile } from '@/lib/validation/fileValidation'
 import { extractPdfText } from '@/lib/pdf/pdfProcessor'
 import { recognizeImage, initOcrWorker, ocrPdfPage } from '@/lib/ocr/ocrProcessor'
@@ -22,22 +23,17 @@ export interface ProcessingResult {
   error?: string
 }
 
-type SupabaseClient = ReturnType<typeof createClient>
-
-async function updateStatus(
-  supabase: SupabaseClient,
+function updateStatus(
   documentId: string,
   status: DocumentProcessingStatus,
   extras: Record<string, unknown> = {}
 ) {
-  await supabase.from('documents').update({ processing_status: status, updated_at: new Date().toISOString(), ...extras }).eq('id', documentId)
+  documentsStore.update(documentId, { processing_status: status, ...extras } as Parameters<typeof documentsStore.update>[1])
 }
 
 export async function processDocument(
   documentId: string,
   file: File,
-  userId: string,
-  supabase: SupabaseClient,
   onProgress: ProgressCallback,
   signal?: AbortSignal
 ): Promise<ProcessingResult> {
@@ -52,18 +48,18 @@ export async function processDocument(
   try {
     // ── Stage 1: Validate ──────────────────────────────────────────────────
     progress('validating', 'Validating file…')
-    await updateStatus(supabase, documentId, 'validating')
+    updateStatus(documentId, 'validating')
 
     const validation = validateFile(file)
     if (!validation.valid) {
-      await updateStatus(supabase, documentId, 'failed', { processing_error: validation.error })
+      updateStatus(documentId, 'failed', { processing_error: validation.error })
       return { documentId, status: 'failed', error: validation.error }
     }
-    if (aborted()) { await updateStatus(supabase, documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
+    if (aborted()) { updateStatus(documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
 
     // ── Stage 2: Extract text ──────────────────────────────────────────────
     progress('extracting_text', 'Extracting text…')
-    await updateStatus(supabase, documentId, 'extracting_text')
+    updateStatus(documentId, 'extracting_text')
 
     const pageTexts: ExtractedText[] = []
     let pageCount = 1
@@ -73,23 +69,21 @@ export async function processDocument(
       const pdfResult = await extractPdfText(file)
 
       if (pdfResult.error && pdfResult.pageTexts.length === 0) {
-        await updateStatus(supabase, documentId, 'failed', { processing_error: pdfResult.error })
+        updateStatus(documentId, 'failed', { processing_error: pdfResult.error })
         return { documentId, status: 'failed', error: pdfResult.error }
       }
 
       pageCount = pdfResult.pageCount
-      await updateStatus(supabase, documentId, 'extracting_text', { page_count: pageCount })
+      updateStatus(documentId, 'extracting_text', { page_count: pageCount })
 
-      // For pages with usable text, use it. For scanned pages, run OCR.
       for (const p of pdfResult.pageTexts) {
-        if (aborted()) { await updateStatus(supabase, documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
+        if (aborted()) { updateStatus(documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
 
         if (p.hasUsableText) {
           pageTexts.push({ page: p.page, text: p.text, source: 'embedded_text' })
         } else {
-          // OCR this page
           progress('ocr_processing', `OCR page ${p.page}…`)
-          await updateStatus(supabase, documentId, 'ocr_processing')
+          updateStatus(documentId, 'ocr_processing')
           try {
             await initOcrWorker('eng')
             const ocrResult = await ocrPdfPage(file, p.page)
@@ -111,7 +105,7 @@ export async function processDocument(
     } else {
       // Image file — run OCR directly
       progress('ocr_processing', 'Running OCR on image…')
-      await updateStatus(supabase, documentId, 'ocr_processing')
+      updateStatus(documentId, 'ocr_processing')
       extractionSource = 'ocr'
 
       try {
@@ -126,36 +120,35 @@ export async function processDocument(
         })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'OCR failed'
-        await updateStatus(supabase, documentId, 'failed', { processing_error: msg })
+        updateStatus(documentId, 'failed', { processing_error: msg })
         return { documentId, status: 'failed', error: msg }
       }
     }
 
-    if (aborted()) { await updateStatus(supabase, documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
+    if (aborted()) { updateStatus(documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
 
     // ── Stage 3: Classify ──────────────────────────────────────────────────
     progress('classifying', 'Classifying document…')
-    await updateStatus(supabase, documentId, 'classifying')
+    updateStatus(documentId, 'classifying')
 
     const classification = classifyDocument(pageTexts, file.name)
-    await updateStatus(supabase, documentId, 'classifying', {
+    updateStatus(documentId, 'classifying', {
       document_type: classification.documentType,
       extraction_source: extractionSource,
     })
 
-    if (aborted()) { await updateStatus(supabase, documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
+    if (aborted()) { updateStatus(documentId, 'cancelled'); return { documentId, status: 'cancelled' } }
 
     // ── Stage 4: Extract fields ────────────────────────────────────────────
     progress('extracting_fields', 'Extracting fields…')
-    await updateStatus(supabase, documentId, 'extracting_fields')
+    updateStatus(documentId, 'extracting_fields')
 
     const rawFields: RawExtractedField[] = extractFields(pageTexts)
 
-    // Insert extracted fields into DB
     if (rawFields.length > 0) {
       const dbFields = rawFields.map(f => ({
         document_id: documentId,
-        user_id: userId,
+        investigation_id: documentsStore.get(documentId)?.investigation_id ?? '',
         field_name: f.fieldName,
         field_value: f.fieldValue,
         normalized_value: f.normalizedValue,
@@ -164,19 +157,12 @@ export async function processDocument(
         source_type: f.sourceType,
         confidence: f.confidence,
       }))
-
-      // Insert in batches of 50 to avoid payload limits
-      for (let i = 0; i < dbFields.length; i += 50) {
-        const batch = dbFields.slice(i, i + 50)
-        const { error } = await supabase.from('extracted_fields').insert(batch)
-        // eslint-disable-next-line no-console
-        if (error) console.warn('Field insert error:', error.message)
-      }
+      extractedFieldsStore.insertBatch(dbFields)
     }
 
     // ── Complete ───────────────────────────────────────────────────────────
     const finalStatus: DocumentProcessingStatus = 'completed'
-    await updateStatus(supabase, documentId, finalStatus, {
+    updateStatus(documentId, finalStatus, {
       document_type: classification.documentType,
       extraction_source: extractionSource,
     })
@@ -186,7 +172,7 @@ export async function processDocument(
 
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unexpected processing error'
-    await updateStatus(supabase, documentId, 'failed', { processing_error: message }).catch(() => {})
+    updateStatus(documentId, 'failed', { processing_error: message })
     return { documentId, status: 'failed', error: message }
   }
 }

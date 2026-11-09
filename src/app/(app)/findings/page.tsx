@@ -1,15 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Search, AlertCircle, ChevronRight } from 'lucide-react'
 import type { PriorityLevel, ReviewStatus } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION, DEMO_FINDINGS } from '@/lib/demo/demoData'
+import { findingsStore, investigationsStore } from '@/lib/store'
 
 type FindingWithInvestigation = {
   id: string
@@ -25,7 +23,6 @@ type FindingWithInvestigation = {
 }
 
 export default function AllFindingsPage() {
-  const router = useRouter()
   const [findings, setFindings] = useState<FindingWithInvestigation[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -33,31 +30,14 @@ export default function AllFindingsPage() {
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | 'all'>('all')
 
   useEffect(() => {
-    if (isDemoMode()) {
-      const demoFindings = DEMO_FINDINGS.map(f => ({
-        ...f,
-        investigations: { name: DEMO_INVESTIGATION.name },
-      }))
-      setFindings(demoFindings as unknown as FindingWithInvestigation[])
-      setLoading(false)
-      return
-    }
-
-    async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data } = await supabase
-        .from('findings')
-        .select('id, title, description, finding_type, priority_score, priority_level, review_status, created_at, investigation_id, investigations(name)')
-        .order('priority_score', { ascending: false })
-
-      setFindings((data ?? []) as unknown as FindingWithInvestigation[])
-      setLoading(false)
-    }
-    load()
-  }, [router])
+    const invMap = new Map(investigationsStore.list().map(inv => [inv.id, inv.name]))
+    const allFindings = findingsStore.listAll().map(f => ({
+      ...f,
+      investigations: { name: invMap.get(f.investigation_id) ?? '—' },
+    }))
+    setFindings(allFindings as unknown as FindingWithInvestigation[])
+    setLoading(false)
+  }, [])
 
   const filtered = findings.filter(f => {
     const q = search.toLowerCase()

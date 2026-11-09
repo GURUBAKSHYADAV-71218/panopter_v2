@@ -1,14 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { StatusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Search, FileText, ExternalLink } from 'lucide-react'
-import { isDemoMode, DEMO_INVESTIGATION, DEMO_DOCUMENTS } from '@/lib/demo/demoData'
+import { documentsStore, investigationsStore } from '@/lib/store'
 
 type DocumentWithInvestigation = {
   id: string
@@ -29,7 +27,6 @@ function formatBytes(bytes: number): string {
 }
 
 export default function AllDocumentsPage() {
-  const router = useRouter()
   const [docs, setDocs] = useState<DocumentWithInvestigation[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -37,31 +34,14 @@ export default function AllDocumentsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
-    if (isDemoMode()) {
-      const demoDocs = DEMO_DOCUMENTS.map(d => ({
-        ...d,
-        investigations: { name: DEMO_INVESTIGATION.name },
-      }))
-      setDocs(demoDocs as unknown as DocumentWithInvestigation[])
-      setLoading(false)
-      return
-    }
-
-    async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data } = await supabase
-        .from('documents')
-        .select('id, file_name, file_type, file_size, processing_status, document_type, created_at, investigation_id, investigations(name)')
-        .order('created_at', { ascending: false })
-
-      setDocs((data ?? []) as unknown as DocumentWithInvestigation[])
-      setLoading(false)
-    }
-    load()
-  }, [router])
+    const invMap = new Map(investigationsStore.list().map(inv => [inv.id, inv.name]))
+    const allDocs = documentsStore.listAll().map(d => ({
+      ...d,
+      investigations: { name: invMap.get(d.investigation_id) ?? '—' },
+    }))
+    setDocs(allDocs as unknown as DocumentWithInvestigation[])
+    setLoading(false)
+  }, [])
 
   const filtered = docs.filter(d => {
     const q = search.toLowerCase()

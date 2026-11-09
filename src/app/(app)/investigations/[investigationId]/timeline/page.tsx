@@ -3,12 +3,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ArrowLeft, Calendar, AlertTriangle, FileText } from 'lucide-react'
 import type { ExtractedField, Document } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION_ID, DEMO_INVESTIGATION, DEMO_DOCUMENTS } from '@/lib/demo/demoData'
+import { investigationsStore, documentsStore, extractedFieldsStore } from '@/lib/store'
 
 const DATE_FIELD_NAMES = [
   'document_date', 'date', 'invoice_date', 'po_date', 'receipt_date',
@@ -57,78 +56,16 @@ export default function TimelinePage() {
   const [loading, setLoading] = useState(true)
   const [showFlagged, setShowFlagged] = useState(false)
 
-  const load = useCallback(async () => {
-    // Demo mode: provide pre-seeded timeline events
-    if (isDemoMode() && investigationId === DEMO_INVESTIGATION_ID) {
-      setInvName(DEMO_INVESTIGATION.name)
-      const demoEvents: TimelineEvent[] = [
-        {
-          date: new Date('2026-10-12T00:00:00Z'),
-          dateStr: '12 Oct 2026',
-          fieldName: 'po_date',
-          fieldValue: '12 Oct 2026',
-          excerpt: 'Date: 12 Oct 2026',
-          documentId: DEMO_DOCUMENTS[0].id,
-          documentName: DEMO_DOCUMENTS[0].file_name,
-          documentType: 'purchase_order',
-          pageNumber: 1,
-          flagged: false,
-          flagReason: null,
-        },
-        {
-          date: new Date('2026-10-13T00:00:00Z'),
-          dateStr: '13 Oct 2026',
-          fieldName: 'invoice_date',
-          fieldValue: '13 Oct 2026',
-          excerpt: 'Invoice Date: 13 Oct 2026',
-          documentId: DEMO_DOCUMENTS[1].id,
-          documentName: DEMO_DOCUMENTS[1].file_name,
-          documentType: 'invoice',
-          pageNumber: 1,
-          flagged: false,
-          flagReason: null,
-        },
-        {
-          date: new Date('2026-10-14T00:00:00Z'),
-          dateStr: '14 Oct 2026',
-          fieldName: 'receipt_date',
-          fieldValue: '14 Oct 2026',
-          excerpt: 'Date Received: 14 Oct 2026',
-          documentId: DEMO_DOCUMENTS[2].id,
-          documentName: DEMO_DOCUMENTS[2].file_name,
-          documentType: 'receipt',
-          pageNumber: 1,
-          flagged: false,
-          flagReason: null,
-        },
-      ]
-      setEvents(demoEvents)
-      setLoading(false)
-      return
-    }
-
-    const supabase = createClient()
-    const [{ data: inv }, { data: docs }] = await Promise.all([
-      supabase.from('investigations').select('name').eq('id', investigationId).single(),
-      supabase.from('documents').select('id, file_name, document_type').eq('investigation_id', investigationId),
-    ])
-    setInvName(inv?.name ?? '')
-
-    const docList = (docs ?? []) as Document[]
+  const load = useCallback(() => {
+    setInvName(investigationsStore.get(investigationId)?.name ?? '')
+    const docList = documentsStore.list(investigationId)
     const docMap = Object.fromEntries(docList.map(d => [d.id, d]))
-    const docIds = docList.map(d => d.id)
 
-    if (docIds.length === 0) { setLoading(false); return }
+    if (docList.length === 0) { setLoading(false); return }
 
-    const { data: fields } = await supabase
-      .from('extracted_fields')
-      .select('*')
-      .in('document_id', docIds)
-      .in('field_name', DATE_FIELD_NAMES)
+    const rawFields = extractedFieldsStore.listForInvestigation(investigationId)
+      .filter(f => DATE_FIELD_NAMES.includes(f.field_name))
 
-    const rawFields = (fields ?? []) as ExtractedField[]
-
-    // Parse and sort
     const rawParsed: TimelineEvent[] = []
     for (const f of rawFields) {
       const date = parseDate(f.field_value)
@@ -156,7 +93,6 @@ export default function TimelinePage() {
     const poEvents = parsed.filter(e => e.documentType === 'purchase_order')
     const now = new Date()
 
-    // Invoice before PO
     if (invoiceEvents.length > 0 && poEvents.length > 0) {
       const earliestPO = poEvents[0].date
       invoiceEvents.forEach(e => {
@@ -167,7 +103,6 @@ export default function TimelinePage() {
       })
     }
 
-    // Future dates
     parsed.forEach(e => {
       if (e.date > now) {
         e.flagged = true

@@ -3,17 +3,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge'
 import { ArrowLeft, FileText, AlertTriangle, Clock, Play, ChevronRight } from 'lucide-react'
 import type { Investigation, Document, Finding } from '@/types'
-import {
-  isDemoMode,
-  DEMO_INVESTIGATION_ID,
-  DEMO_INVESTIGATION,
-  DEMO_DOCUMENTS,
-  DEMO_FINDINGS,
-} from '@/lib/demo/demoData'
+import { investigationsStore, documentsStore, findingsStore } from '@/lib/store'
 
 const TABS = [
   { id: 'documents', label: 'Documents' },
@@ -48,35 +41,13 @@ export default function InvestigationDetailPage() {
   const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
-    // Demo mode fallback
-    if (isDemoMode() && id === DEMO_INVESTIGATION_ID) {
-      setInv(DEMO_INVESTIGATION)
-      setDocs(DEMO_DOCUMENTS)
-      setFindings(DEMO_FINDINGS.slice(0, 5))
-      setLoading(false)
-      return
-    }
-
-    async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data: investigation } = await supabase.from('investigations').select('*').eq('id', id).eq('user_id', user.id).single()
-      if (!investigation) { setNotFound(true); setLoading(false); return }
-
-      const [{ data: documents }, { data: findingData }] = await Promise.all([
-        supabase.from('documents').select('*').eq('investigation_id', id).order('created_at'),
-        supabase.from('findings').select('*').eq('investigation_id', id).order('priority_score', { ascending: false }).limit(5),
-      ])
-
-      setInv(investigation as Investigation)
-      setDocs(documents as Document[] ?? [])
-      setFindings(findingData as Finding[] ?? [])
-      setLoading(false)
-    }
-    load()
-  }, [id, router])
+    const investigation = investigationsStore.get(id)
+    if (!investigation) { setNotFound(true); setLoading(false); return }
+    setInv(investigation)
+    setDocs(documentsStore.list(id))
+    setFindings(findingsStore.list(id).slice(0, 5))
+    setLoading(false)
+  }, [id])
 
   if (loading) return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -95,8 +66,6 @@ export default function InvestigationDetailPage() {
   if (!inv) return null
 
   const pendingDocs = docs.filter(d => d.processing_status === 'pending')
-  const completedDocs = docs.filter(d => d.processing_status === 'completed' || d.processing_status === 'completed_with_warnings')
-  const failedDocs = docs.filter(d => d.processing_status === 'failed')
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
