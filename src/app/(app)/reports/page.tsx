@@ -1,38 +1,22 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { StatusBadge } from '@/components/ui/Badge'
 import { FileText, ArrowRight } from 'lucide-react'
 import type { Investigation } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION } from '@/lib/demo/demoData'
+import { investigationsStore } from '@/lib/store'
 
 export default function ReportsPage() {
-  const router = useRouter()
   const [investigations, setInvestigations] = useState<Investigation[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (isDemoMode()) {
-      setInvestigations([DEMO_INVESTIGATION])
-      setLoading(false)
-      return
-    }
-
-    async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-      const { data } = await supabase.from('investigations').select('*').order('created_at', { ascending: false })
-      setInvestigations((data ?? []) as Investigation[])
-      setLoading(false)
-    }
-    load()
-  }, [router])
+    setInvestigations(investigationsStore.list())
+    setLoading(false)
+  }, [])
 
   if (loading) return <PageLoader />
 

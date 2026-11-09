@@ -6,21 +6,19 @@ import { TopBar } from '@/components/layout/TopBar'
 import { ToastProvider } from '@/components/ui/ToastContext'
 import { ToastContainer } from '@/components/ui/Toast'
 import type { User } from '@/types'
-import { FlaskConical } from 'lucide-react'
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface AppShellProps {
   user: User
   children: React.ReactNode
-  demoMode?: boolean
 }
 
 const SIDEBAR_KEY = 'panopter:sidebar-collapsed'
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function AppShell({ user, children, demoMode = false }: AppShellProps) {
+export function AppShell({ user, children }: AppShellProps) {
   // Initialise from localStorage; default false (expanded)
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false)
   const [hydrated, setHydrated] = useState(false)
@@ -53,19 +51,7 @@ export function AppShell({ user, children, demoMode = false }: AppShellProps) {
   return (
     <ToastProvider>
       <div className="flex h-screen bg-p-bg overflow-hidden flex-col">
-        {/* Demo mode banner */}
-        {demoMode && (
-          <div className="shrink-0 flex items-center justify-center gap-2 bg-amber-900/40 border-b border-amber-700/50 text-amber-300 text-xs font-medium py-1.5 px-4">
-            <FlaskConical className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-            <span>
-              <strong>DEMO MODE</strong> — No Supabase credentials configured. Showing sample data only. Add{' '}
-              <code className="font-mono bg-amber-900/60 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> to{' '}
-              <code className="font-mono bg-amber-900/60 px-1 rounded">.env.local</code> to enable full functionality.
-            </span>
-          </div>
-        )}
-
-        <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden">
           <Sidebar
             collapsed={sidebarCollapsed}
             onToggle={handleToggle}

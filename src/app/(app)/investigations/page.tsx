@@ -2,11 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Plus, Search, FileText, AlertTriangle, Clock, Layers, ChevronRight } from 'lucide-react'
 import type { Investigation } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION, DEMO_DOCUMENTS, DEMO_FINDINGS } from '@/lib/demo/demoData'
+import { investigationsStore, findingsStore, documentsStore } from '@/lib/store'
 
 type SortOption = 'newest' | 'oldest' | 'name'
 type StatusFilter = 'all' | 'draft' | 'processing' | 'completed' | 'completed_with_warnings' | 'failed' | 'archived'
@@ -28,33 +27,13 @@ export default function InvestigationsPage() {
   const [sort, setSort] = useState<SortOption>('newest')
 
   useEffect(() => {
-    if (isDemoMode()) {
-      setInvestigations([{
-        ...DEMO_INVESTIGATION,
-        doc_count: DEMO_DOCUMENTS.length,
-        finding_count: DEMO_FINDINGS.length,
-      } as Investigation & { doc_count: number; finding_count: number }])
-      setLoading(false)
-      return
-    }
-
-    async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data } = await supabase.from('investigations').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
-      if (!data) { setLoading(false); return }
-      const withCounts = await Promise.all(data.map(async inv => {
-        const [{ count: dc }, { count: fc }] = await Promise.all([
-          supabase.from('documents').select('*', { count: 'exact', head: true }).eq('investigation_id', inv.id),
-          supabase.from('findings').select('*', { count: 'exact', head: true }).eq('investigation_id', inv.id),
-        ])
-        return { ...inv, doc_count: dc ?? 0, finding_count: fc ?? 0 }
-      }))
-      setInvestigations(withCounts as (Investigation & { doc_count: number; finding_count: number })[])
-      setLoading(false)
-    }
-    load()
+    const invList = investigationsStore.list().map(inv => ({
+      ...inv,
+      doc_count: documentsStore.list(inv.id).length,
+      finding_count: findingsStore.list(inv.id).length,
+    }))
+    setInvestigations(invList as (Investigation & { doc_count: number; finding_count: number })[])
+    setLoading(false)
   }, [])
 
   const filtered = investigations

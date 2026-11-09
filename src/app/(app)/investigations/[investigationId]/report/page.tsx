@@ -3,16 +3,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/hooks/useToast'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge'
 import { ArrowLeft, Download, FileText, CheckCircle } from 'lucide-react'
 import type { Investigation, Document, Finding, FindingEvidence } from '@/types'
-import {
-  isDemoMode, DEMO_INVESTIGATION_ID, DEMO_INVESTIGATION,
-  DEMO_DOCUMENTS, DEMO_FINDINGS, DEMO_EVIDENCE,
-} from '@/lib/demo/demoData'
+import { investigationsStore, documentsStore, findingsStore, findingEvidenceStore } from '@/lib/store'
 
 export default function ReportPage() {
   const params = useParams()
@@ -26,33 +22,14 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
 
-  const load = useCallback(async () => {
-    if (isDemoMode() && investigationId === DEMO_INVESTIGATION_ID) {
-      setInvestigation(DEMO_INVESTIGATION)
-      setDocuments(DEMO_DOCUMENTS)
-      setFindings(DEMO_FINDINGS)
-      setEvidence(DEMO_EVIDENCE)
-      setLoading(false)
-      return
-    }
-
-    const supabase = createClient()
-    const [{ data: inv }, { data: docs }, { data: f }] = await Promise.all([
-      supabase.from('investigations').select('*').eq('id', investigationId).single(),
-      supabase.from('documents').select('*').eq('investigation_id', investigationId).order('created_at'),
-      supabase.from('findings').select('*').eq('investigation_id', investigationId).order('priority_score', { ascending: false }),
-    ])
-    setInvestigation(inv as Investigation | null)
-    setDocuments((docs ?? []) as Document[])
-    const fList = (f ?? []) as Finding[]
+  const load = useCallback(() => {
+    const inv = investigationsStore.get(investigationId)
+    setInvestigation(inv)
+    setDocuments(documentsStore.list(investigationId))
+    const fList = findingsStore.list(investigationId)
     setFindings(fList)
-
     if (fList.length > 0) {
-      const { data: ev } = await supabase
-        .from('finding_evidence')
-        .select('*')
-        .in('finding_id', fList.map(x => x.id))
-      setEvidence((ev ?? []) as FindingEvidence[])
+      setEvidence(findingEvidenceStore.listForFindings(fList.map(f => f.id)))
     }
     setLoading(false)
   }, [investigationId])

@@ -1,15 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { StatusBadge } from '@/components/ui/Badge'
-import { ArrowLeft, FileText, ChevronRight } from 'lucide-react'
+import { ArrowLeft, FileText } from 'lucide-react'
 import type { Document, ExtractedField } from '@/types'
 import { formatFileSize } from '@/lib/validation/fileValidation'
 import { getPendingFile } from '@/features/documents/pendingFilesStore'
-import { isDemoMode, DEMO_INVESTIGATION_ID, DEMO_DOCUMENTS } from '@/lib/demo/demoData'
+import { documentsStore, extractedFieldsStore } from '@/lib/store'
 
 // Demo extracted fields for each document type
 const DEMO_FIELDS: Record<string, { field_name: string; field_value: string; page_number: number; source_excerpt: string | null }[]> = {
@@ -38,7 +37,6 @@ const DEMO_FIELDS: Record<string, { field_name: string; field_value: string; pag
 
 export default function DocumentDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const investigationId = params.investigationId as string
   const documentId = params.documentId as string
 
@@ -52,52 +50,21 @@ export default function DocumentDetailPage() {
   const imageUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
-    // Demo mode
-    if (isDemoMode() && investigationId === DEMO_INVESTIGATION_ID) {
-      const demoDoc = DEMO_DOCUMENTS.find(d => d.id === documentId) ?? DEMO_DOCUMENTS[0]
-      const demoFields = (DEMO_FIELDS[demoDoc.id] ?? []).map((f, i) => ({
-        id: `demo-field-${i}`,
-        document_id: demoDoc.id,
-        investigation_id: DEMO_INVESTIGATION_ID,
-        user_id: 'demo-user',
-        field_name: f.field_name,
-        field_value: f.field_value,
-        page_number: f.page_number,
-        source_excerpt: f.source_excerpt,
-        confidence_score: 0.95,
-        extraction_method: 'embedded_text' as const,
-        created_at: demoDoc.created_at,
-      }))
-      setDoc(demoDoc)
-      setFields(demoFields as unknown as ExtractedField[])
-      setDocs(DEMO_DOCUMENTS)
-      setLoading(false)
-      return
-    }
+    const document = documentsStore.get(documentId)
+    setDoc(document)
+    setFields(extractedFieldsStore.list(documentId))
+    setDocs(documentsStore.list(investigationId))
 
-    async function load() {
-      const supabase = createClient()
-      const [{ data: document }, { data: extractedFields }, { data: allDocs }] = await Promise.all([
-        supabase.from('documents').select('*').eq('id', documentId).single(),
-        supabase.from('extracted_fields').select('*').eq('document_id', documentId).order('page_number').order('field_name'),
-        supabase.from('documents').select('id, file_name, processing_status, document_type').eq('investigation_id', investigationId).order('created_at'),
-      ])
-      setDoc(document as Document)
-      setFields(extractedFields as ExtractedField[] ?? [])
-      setDocs(allDocs as Document[] ?? [])
-
-      const file = getPendingFile(documentId)
-      if (file) {
-        setFileAvailable(true)
-        if (file.type !== 'application/pdf') {
-          const url = URL.createObjectURL(file)
-          imageUrlRef.current = url
-          setImageUrl(url)
-        }
+    const file = getPendingFile(documentId)
+    if (file) {
+      setFileAvailable(true)
+      if (file.type !== 'application/pdf') {
+        const url = URL.createObjectURL(file)
+        imageUrlRef.current = url
+        setImageUrl(url)
       }
-      setLoading(false)
     }
-    load()
+    setLoading(false)
     return () => { if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current) }
   }, [documentId, investigationId])
 

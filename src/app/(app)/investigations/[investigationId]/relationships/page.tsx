@@ -3,13 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ArrowLeft, ZoomIn, ZoomOut, RotateCcw, Share2 } from 'lucide-react'
 import type { Entity, EntityRelationship, Document } from '@/types'
-import { isDemoMode, DEMO_INVESTIGATION_ID, DEMO_INVESTIGATION, DEMO_DOCUMENTS } from '@/lib/demo/demoData'
+import { investigationsStore, documentsStore, entitiesStore, entityRelationshipsStore } from '@/lib/store'
 
 // ── Node colours by entity type
 const NODE_COLOR: Record<string, string> = {
@@ -236,35 +235,11 @@ export default function RelationshipsPage() {
   const [invName, setInvName] = useState('')
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async () => {
-    // Demo mode: show demo documents as graph nodes, no entities (not yet extracted)
-    if (isDemoMode() && investigationId === DEMO_INVESTIGATION_ID) {
-      setInvName(DEMO_INVESTIGATION.name)
-      setDocuments(DEMO_DOCUMENTS as unknown as Document[])
-      // Provide synthetic demo entities
-      setEntities([
-        { id: 'ent-demo-1', investigation_id: DEMO_INVESTIGATION_ID, user_id: 'demo-user', entity_type: 'organization', display_name: 'ABC Supplies Pvt. Ltd.', normalized_name: 'abc supplies pvt ltd', created_at: DEMO_INVESTIGATION.created_at },
-      ] as Entity[])
-      setRelationships([
-        { id: 'rel-demo-1', investigation_id: DEMO_INVESTIGATION_ID, user_id: 'demo-user', source_entity_id: 'ent-demo-1', target_entity_id: DEMO_DOCUMENTS[0].id, relationship_type: 'vendor_to_document', supporting_document_id: DEMO_DOCUMENTS[0].id, created_at: DEMO_INVESTIGATION.created_at },
-        { id: 'rel-demo-2', investigation_id: DEMO_INVESTIGATION_ID, user_id: 'demo-user', source_entity_id: 'ent-demo-1', target_entity_id: DEMO_DOCUMENTS[1].id, relationship_type: 'vendor_to_document', supporting_document_id: DEMO_DOCUMENTS[1].id, created_at: DEMO_INVESTIGATION.created_at },
-        { id: 'rel-demo-3', investigation_id: DEMO_INVESTIGATION_ID, user_id: 'demo-user', source_entity_id: 'ent-demo-1', target_entity_id: DEMO_DOCUMENTS[2].id, relationship_type: 'vendor_to_document', supporting_document_id: DEMO_DOCUMENTS[2].id, created_at: DEMO_INVESTIGATION.created_at },
-      ] as EntityRelationship[])
-      setLoading(false)
-      return
-    }
-
-    const supabase = createClient()
-    const [{ data: inv }, { data: ents }, { data: rels }, { data: docs }] = await Promise.all([
-      supabase.from('investigations').select('name').eq('id', investigationId).single(),
-      supabase.from('entities').select('*').eq('investigation_id', investigationId),
-      supabase.from('entity_relationships').select('*').eq('investigation_id', investigationId),
-      supabase.from('documents').select('id, file_name, document_type').eq('investigation_id', investigationId),
-    ])
-    setInvName(inv?.name ?? '')
-    setEntities((ents ?? []) as Entity[])
-    setRelationships((rels ?? []) as EntityRelationship[])
-    setDocuments((docs ?? []) as Document[])
+  const load = useCallback(() => {
+    setInvName(investigationsStore.get(investigationId)?.name ?? '')
+    setEntities(entitiesStore.list(investigationId) as Entity[])
+    setRelationships(entityRelationshipsStore.list(investigationId) as EntityRelationship[])
+    setDocuments(documentsStore.list(investigationId) as Document[])
     setLoading(false)
   }, [investigationId])
 

@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { PriorityBadge, StatusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useToast } from '@/hooks/useToast'
@@ -11,10 +10,7 @@ import {
   ArrowLeft, CheckCircle, XCircle, Clock, FileText, AlertCircle, History, Bookmark, BookmarkCheck
 } from 'lucide-react'
 import type { Finding, FindingEvidence, ReviewHistory, Document, ReviewStatus } from '@/types'
-import {
-  isDemoMode, DEMO_INVESTIGATION_ID, DEMO_INVESTIGATION, DEMO_FINDINGS,
-  DEMO_EVIDENCE, DEMO_DOCUMENTS,
-} from '@/lib/demo/demoData'
+import { investigationsStore, findingsStore, findingEvidenceStore, documentsStore, bookmarksStore, reviewHistoryStore } from '@/lib/store'
 
 const FINDING_TYPE_LABELS: Record<string, string> = {
   amount_mismatch: 'Amount Mismatch',
@@ -30,7 +26,6 @@ const FINDING_TYPE_LABELS: Record<string, string> = {
 
 export default function FindingDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const { addToast } = useToast()
   const investigationId = params.investigationId as string
   const findingId = params.findingId as string
@@ -45,45 +40,16 @@ export default function FindingDetailPage() {
   const [bookmarked, setBookmarked] = useState(false)
   const [bookmarking, setBookmarking] = useState(false)
 
-  const load = useCallback(async () => {
-    // Demo mode fallback
-    if (isDemoMode() && investigationId === DEMO_INVESTIGATION_ID) {
-      const demoFinding = DEMO_FINDINGS.find(f => f.id === findingId) ?? DEMO_FINDINGS[0]
-      const demoEvidence = DEMO_EVIDENCE.filter(e => e.finding_id === demoFinding.id)
-      const docIds = [...new Set(demoEvidence.map(e => e.document_id))]
-      const relatedDocs = DEMO_DOCUMENTS.filter(d => docIds.includes(d.id))
-      setInvName(DEMO_INVESTIGATION.name)
-      setFinding(demoFinding)
-      setEvidence(demoEvidence)
-      setDocs(relatedDocs)
-      setHistory([])
-      setBookmarked(false)
-      setLoading(false)
-      return
-    }
-
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    const [{ data: inv }, { data: f }, { data: ev }, { data: h }, { data: bm }] = await Promise.all([
-      supabase.from('investigations').select('name').eq('id', investigationId).single(),
-      supabase.from('findings').select('*').eq('id', findingId).single(),
-      supabase.from('finding_evidence').select('*').eq('finding_id', findingId),
-      supabase.from('review_history').select('*').eq('finding_id', findingId).order('created_at'),
-      user ? supabase.from('bookmarks').select('id').eq('finding_id', findingId).eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null }),
-    ])
-    setInvName(inv?.name ?? '')
-    setFinding(f as Finding | null)
-    const evList = (ev ?? []) as FindingEvidence[]
+  const load = useCallback(() => {
+    setInvName(investigationsStore.get(investigationId)?.name ?? '')
+    const f = findingsStore.get(findingId)
+    setFinding(f)
+    const evList = findingEvidenceStore.list(findingId)
     setEvidence(evList)
-    setHistory((h ?? []) as ReviewHistory[])
-    setBookmarked(!!bm)
-
-    // Load related documents
     const docIds = [...new Set(evList.map(e => e.document_id))]
-    if (docIds.length > 0) {
-      const { data: d } = await supabase.from('documents').select('*').in('id', docIds)
-      setDocs((d ?? []) as Document[])
-    }
+    setDocs(docIds.map(id => documentsStore.get(id)).filter(Boolean) as Document[])
+    setHistory(reviewHistoryStore.list(findingId))
+    setBookmarked(bookmarksStore.isBookmarked(findingId))
     setLoading(false)
   }, [investigationId, findingId])
 
@@ -91,64 +57,28 @@ export default function FindingDetailPage() {
 
   async function updateReviewStatus(newStatus: ReviewStatus) {
     if (!finding) return
-
-    // In demo mode, update state locally without persisting
-    if (isDemoMode()) {
-      setFinding(prev => prev ? { ...prev, review_status: newStatus } : null)
-      addToast({ type: 'info', title: 'Demo mode', message: 'Status updated locally — not persisted without Supabase credentials.' })
-      return
-    }
-
     setReviewing(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-
-    const [updateResult] = await Promise.all([
-      supabase.from('findings').update({
-        review_status: newStatus,
-        updated_at: new Date().toISOString(),
-      }).eq('id', findingId),
-      supabase.from('review_history').insert({
-        finding_id: findingId,
-        user_id: user.id,
-        previous_status: finding.review_status,
-        new_status: newStatus,
-        review_note: null,
-      }),
-    ])
-
-    if (updateResult.error) {
-      addToast({ type: 'error', title: 'Failed to update status', message: updateResult.error.message })
-    } else {
-      addToast({ type: 'success', title: 'Status updated' })
-      setFinding(prev => prev ? { ...prev, review_status: newStatus } : null)
-      await load()
-    }
+    reviewHistoryStore.add({
+      findingId,
+      previousStatus: finding.review_status,
+      newStatus,
+    })
+    findingsStore.update(findingId, { review_status: newStatus })
+    setFinding(prev => prev ? { ...prev, review_status: newStatus } : null)
+    setHistory(reviewHistoryStore.list(findingId))
+    addToast({ type: 'success', title: 'Status updated' })
     setReviewing(false)
   }
 
   async function toggleBookmark() {
     if (!finding) return
-
-    // In demo mode, toggle locally
-    if (isDemoMode()) {
-      setBookmarked(prev => !prev)
-      addToast({ type: 'info', title: 'Demo mode', message: bookmarked ? 'Bookmark removed (not persisted)' : 'Bookmarked locally (not persisted)' })
-      return
-    }
-
     setBookmarking(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-
     if (bookmarked) {
-      await supabase.from('bookmarks').delete().eq('finding_id', findingId).eq('user_id', user.id)
+      bookmarksStore.remove(findingId)
       setBookmarked(false)
       addToast({ type: 'info', title: 'Bookmark removed' })
     } else {
-      await supabase.from('bookmarks').insert({ finding_id: findingId, user_id: user.id })
+      bookmarksStore.add(findingId)
       setBookmarked(true)
       addToast({ type: 'success', title: 'Finding bookmarked' })
     }

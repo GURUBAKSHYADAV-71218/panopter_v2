@@ -17,7 +17,7 @@
 
 DO $$
 DECLARE
-  v_user_id      UUID := '{USER_ID}'::UUID;  -- REPLACE THIS
+  v_user_id      UUID := 'd121b996-f0b5-4de8-9877-d2993e573db0'::UUID;  -- REPLACE THIS
   v_inv_id       UUID := gen_random_uuid();
   v_po_id        UUID := gen_random_uuid();
   v_inv_doc_id   UUID := gen_random_uuid();
